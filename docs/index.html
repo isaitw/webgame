@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>數獨遊戲</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .game-container {
+            text-align: center;
+        }
+        .sudoku-grid {
+            display: grid;
+            grid-template-columns: repeat(9, auto);
+            gap: 1px;
+            background-color: #333;
+            padding: 2px;
+            margin-bottom: 20px;
+            border: 2px solid #333;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            background-color: white;
+            border: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 18px;
+            text-align: center;
+        }
+        .cell:focus {
+            outline: 2px solid #007bff;
+        }
+        .cell.given {
+            background-color: #e0e0e0;
+            font-weight: bold;
+        }
+        /* 3x3 區塊的右邊界和下邊界 */
+        .cell:nth-child(3n) {
+            border-right: 2px solid #333;
+        }
+        .cell:nth-child(9n) {
+            border-right: none;
+        }
+        .cell:nth-child(n+19):nth-child(-n+27),
+        .cell:nth-child(n+46):nth-child(-n+54) {
+            border-bottom: 2px solid #333;
+        }
+        button {
+            font-size: 16px;
+            padding: 8px 16px;
+            margin: 5px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        select {
+            font-size: 16px;
+            padding: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>數獨遊戲</h1>
+        <div class="sudoku-grid" id="grid"></div>
+        <div>
+            <select id="levelSelect">
+                <option value="0">初級</option>
+                <option value="1">中級</option>
+                <option value="2">高級</option>
+                <option value="3">專家</option>
+                <option value="4">大師</option>
+            </select>
+            <button id="startButton">開始遊戲</button>
+            <button id="hintButton">提示</button>
+        </div>
+        <p id="message"></p>
+        <p id="timer"></p>
+    </div>
+
+    <script>
+        const grid = document.getElementById('grid');
+        const startButton = document.getElementById('startButton');
+        const hintButton = document.getElementById('hintButton');
+        const levelSelect = document.getElementById('levelSelect');
+        const messageDisplay = document.getElementById('message');
+        const timerDisplay = document.getElementById('timer');
+
+        let sudoku = [];
+        let solution = [];
+        let level = 0;
+        let hintsUsed = 0;
+        let idleTime = 0;
+        let gameTime = 0;
+        let timerInterval;
+        let idleInterval;
+
+        function createGrid() {
+            grid.innerHTML = '';
+            for (let i = 0; i < 81; i++) {
+                const cell = document.createElement('input');
+                cell.type = 'text';
+                cell.maxLength = 1;
+                cell.classList.add('cell');
+                cell.dataset.index = i;
+                cell.addEventListener('input', checkInput);
+                grid.appendChild(cell);
+            }
+        }
+
+        function generateSudoku(difficulty) {
+            // 這裡應該有一個生成數獨的算法
+            // 為了簡化，我們使用一個預設的數獨謎題
+            const puzzle = [
+                5,3,0,0,7,0,0,0,0,
+                6,0,0,1,9,5,0,0,0,
+                0,9,8,0,0,0,0,6,0,
+                8,0,0,0,6,0,0,0,3,
+                4,0,0,8,0,3,0,0,1,
+                7,0,0,0,2,0,0,0,6,
+                0,6,0,0,0,0,2,8,0,
+                0,0,0,4,1,9,0,0,5,
+                0,0,0,0,8,0,0,7,9
+            ];
+            
+            const solutionPuzzle = [
+                5,3,4,6,7,8,9,1,2,
+                6,7,2,1,9,5,3,4,8,
+                1,9,8,3,4,2,5,6,7,
+                8,5,9,7,6,1,4,2,3,
+                4,2,6,8,5,3,7,9,1,
+                7,1,3,9,2,4,8,5,6,
+                9,6,1,5,3,7,2,8,4,
+                2,8,7,4,1,9,6,3,5,
+                3,4,5,2,8,6,1,7,9
+            ];
+
+            // 根據難度移除更多數字
+            const cellsToRemove = [20, 30, 40, 50, 60][difficulty];
+            for (let i = 0; i < cellsToRemove; i++) {
+                let index;
+                do {
+                    index = Math.floor(Math.random() * 81);
+                } while (puzzle[index] === 0);
+                puzzle[index] = 0;
+            }
+
+            return { puzzle, solution: solutionPuzzle };
+        }
+
+        function displaySudoku() {
+            const cells = document.querySelectorAll('.cell');
+            for (let i = 0; i < 81; i++) {
+                const value = sudoku[i];
+                cells[i].value = value === 0 ? '' : value;
+                cells[i].readOnly = value !== 0;
+                cells[i].classList.toggle('given', value !== 0);
+            }
+        }
+
+        function checkInput(event) {
+            const input = event.target;
+            const value = input.value;
+            if (value !== '' && (isNaN(value) || value < 1 || value > 9)) {
+                input.value = '';
+            }
+            checkCompletion();
+            resetIdleTime();
+        }
+
+        function checkCompletion() {
+            const cells = document.querySelectorAll('.cell');
+            for (let i = 0; i < 81; i++) {
+                if (cells[i].value === '' || parseInt(cells[i].value) !== solution[i]) {
+                    return;
+                }
+            }
+            endGame(true);
+        }
+
+        function startGame() {
+            level = parseInt(levelSelect.value);
+            const { puzzle, solution: sol } = generateSudoku(level);
+            sudoku = puzzle;
+            solution = sol;
+            hintsUsed = 0;
+            idleTime = 0;
+            gameTime = 0;
+            displaySudoku();
+            startTimer();
+            messageDisplay.textContent = `難度: ${['初級', '中級', '高級', '專家', '大師'][level]}`;
+            hintButton.disabled = false;
+        }
+
+        function startTimer() {
+            clearInterval(timerInterval);
+            clearInterval(idleInterval);
+            timerInterval = setInterval(() => {
+                gameTime++;
+                updateTimerDisplay();
+            }, 1000);
+            idleInterval = setInterval(() => {
+                idleTime++;
+                if (idleTime === 600) { // 10 minutes
+                    offerHint();
+                } else if (idleTime === 1200) { // 20 minutes
+                    endGame(false);
+                }
+            }, 1000);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(gameTime / 60);
+            const seconds = gameTime % 60;
+            timerDisplay.textContent = `遊戲時間: ${minutes}分${seconds}秒`;
+        }
+
+        function resetIdleTime() {
+            idleTime = 0;
+        }
+
+        function offerHint() {
+            if (hintsUsed < 3) {
+                messageDisplay.textContent = '看起來你遇到困難了。需要提示嗎？';
+            }
+        }
+
+        function giveHint() {
+            if (hintsUsed >= 3) {
+                messageDisplay.textContent = '已經沒有提示了！';
+                return;
+            }
+            const cells = document.querySelectorAll('.cell');
+            let emptyIndexes = [];
+            for (let i = 0; i < 81; i++) {
+                if (cells[i].value === '') {
+                    emptyIndexes.push(i);
+                }
+            }
+            if (emptyIndexes.length === 0) return;
+            const randomIndex = emptyIndexes[Math.floor(Math.random() * emptyIndexes.length)];
+            cells[randomIndex].value = solution[randomIndex];
+            cells[randomIndex].classList.add('given');
+            cells[randomIndex].readOnly = true;
+            hintsUsed++;
+            messageDisplay.textContent = `提示已使用。還剩 ${3 - hintsUsed} 個提示。`;
+            resetIdleTime();
+            checkCompletion();
+        }
+
+        function endGame(completed) {
+            clearInterval(timerInterval);
+            clearInterval(idleInterval);
+            const cells = document.querySelectorAll('.cell');
+            for (let i = 0; i < 81; i++) {
+                cells[i].readOnly = true;
+            }
+            hintButton.disabled = true;
+            if (completed) {
+                messageDisplay.textContent = '恭喜！你完成了數獨！';
+            } else {
+                messageDisplay.textContent = '遊戲結束。超過20分鐘未操作。';
+            }
+        }
+
+        startButton.addEventListener('click', startGame);
+        hintButton.addEventListener('click', giveHint);
+        createGrid();
+    </script>
+</body>
+</html>
